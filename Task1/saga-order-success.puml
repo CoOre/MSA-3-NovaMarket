@@ -1,0 +1,54 @@
+@startuml NovaMarket-Saga-Success
+title Saga «Оформление заказа» — успешный сценарий (хореография)
+
+actor "Покупатель" as Buyer
+participant "API Gateway\n(NGINX)" as GW
+participant "Order\nService" as Order
+queue "Kafka" as Bus
+participant "Inventory\nService" as Inv
+participant "Payment\nService" as Pay
+participant "Delivery\nService" as Del
+participant "Notification\nService" as Notif
+participant "Продавец" as Seller
+
+Buyer -> GW : POST /orders (состав, адрес, оплата)
+GW -> Order : создать заказ
+activate Order
+Order -> Order : статус = «Ожидает оплаты»
+Order -> Bus : publish **OrderCreated** (domain)
+deactivate Order
+
+Bus -> Inv : OrderCreated
+activate Inv
+Inv -> Inv : проверить наличие и зарезервировать
+Inv -> Bus : publish **InventoryReserved** (domain)
+deactivate Inv
+
+Bus -> Pay : InventoryReserved
+activate Pay
+Pay -> Pay : списать средства (внешний шлюз)
+Pay -> Bus : publish **PaymentSucceeded** (domain)
+deactivate Pay
+
+Bus -> Order : PaymentSucceeded
+Order -> Order : статус = «Оплачен, готовится к отправке»
+
+Bus -> Del : PaymentSucceeded
+activate Del
+Del -> Del : создать заявку на доставку (внешний логист)\nполучить трек-номер
+Del -> Bus : publish **DeliveryRequestCreated** (domain)
+deactivate Del
+
+Bus -> Order : DeliveryRequestCreated
+activate Order
+Order -> Order : статус = «Передан в доставку»
+Order -> Bus : publish **OrderConfirmed** (domain)
+deactivate Order
+
+Bus -> Notif : PaymentSucceeded / DeliveryRequestCreated / OrderConfirmed
+activate Notif
+Notif -> Seller : push «Новый заказ — подготовьте товар»
+Notif -> Buyer : push «Заказ оплачен и передан в доставку»
+deactivate Notif
+
+@enduml
