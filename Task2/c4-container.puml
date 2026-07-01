@@ -1,0 +1,80 @@
+@startuml NovaMarket-C4-Container-OrderHistory
+' Контейнерная (C2) диаграмма — ПОЛНАЯ обновлённая архитектура NovaMarket
+' (все сервисы MVP из Task1 + новая query-сторона истории заказов, CQRS)
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+title Контейнерная диаграмма (C4 / C2) — NovaMarket: обновлённая архитектура с историей заказов (CQRS)
+
+Person(buyer, "Покупатель", "Каталог, оформление, история заказов")
+Person(seller, "Продавец", "Товары, уведомления о заказах")
+
+System_Ext(payGw, "Платёжный шлюз", "Внешний провайдер платежей")
+System_Ext(logistics, "Логистический провайдер", "Внешняя служба доставки")
+
+System_Boundary(novamarket, "NovaMarket") {
+    Container(mobile, "Mobile App", "iOS / Android", "Клиентский канал")
+    Container(gateway, "API Gateway", "NGINX", "Маршрутизация, rate limiting, прокси")
+
+    ' --- Command side (запись) ---
+    Container(catalog, "Catalog Service", "REST", "Каталог, фильтрация, карточки, отзывы")
+    Container(cart, "Cart Service", "REST", "Корзина покупателя")
+    Container(order, "Order Service", "REST + events", "Оформление заказа, статусы, участник Saga-хореографии")
+    Container(inventory, "Inventory Service", "events", "Проверка наличия и резервирование товара")
+    Container(payment, "Payment Service", "events", "Оплата, возвраты, генерация чека")
+    Container(delivery, "Delivery Service", "events", "Заявки на доставку, трек-номера")
+    Container(notification, "Notification Service", "events", "Push-уведомления покупателю и продавцу")
+
+    ' --- Query side (чтение) — НОВЫЙ компонент (CQRS) ---
+    Container(history, "Order History Service", "REST + events", "Query-сторона CQRS: денормализованная история заказов, список и детали за один запрос")
+
+    ContainerQueue(broker, "Message Broker", "Apache Kafka", "Шина событий (domain / failure / compensation)")
+
+    ContainerDb(catalogDb, "Catalog DB", "PostgreSQL", "Товары, категории, отзывы")
+    ContainerDb(cartDb, "Cart Store", "Redis", "Состояние корзин")
+    ContainerDb(orderDb, "Order DB", "PostgreSQL", "Write-модель: заказы и статусы")
+    ContainerDb(inventoryDb, "Inventory DB", "PostgreSQL", "Остатки и резервы")
+    ContainerDb(paymentDb, "Payment DB", "PostgreSQL", "Платежи, токены карт")
+    ContainerDb(deliveryDb, "Delivery DB", "PostgreSQL", "Заявки на доставку")
+    ContainerDb(historyDb, "Order History Read DB", "PostgreSQL (денормализ.) / Elasticsearch", "Read-модель: готовые проекции истории заказов")
+}
+
+' --- Клиентский путь (синхронный, REST) ---
+Rel(buyer, mobile, "Использует")
+Rel(seller, mobile, "Использует")
+Rel(mobile, gateway, "HTTPS / JSON")
+Rel(gateway, catalog, "Каталог, «заказать снова», отзывы", "REST")
+Rel(gateway, cart, "Корзина", "REST")
+Rel(gateway, order, "Оформление заказа", "REST")
+Rel(gateway, history, "История: GET /orders/history, GET /orders/{id}, чек", "REST")
+
+' --- Чтение истории: один запрос к read-модели (< 1 c) ---
+Rel(history, historyDb, "Чтение готовых проекций")
+
+' --- Хранилища command side ---
+Rel(catalog, catalogDb, "Читает/пишет")
+Rel(cart, cartDb, "Читает/пишет")
+Rel(order, orderDb, "Читает/пишет")
+Rel(inventory, inventoryDb, "Читает/пишет")
+Rel(payment, paymentDb, "Читает/пишет")
+Rel(delivery, deliveryDb, "Читает/пишет")
+
+' --- Событийное взаимодействие через брокер (Saga + проекции истории) ---
+Rel(order, broker, "publish: OrderCreated; OrderConfirmed; OrderCancelled", "Kafka")
+Rel(broker, inventory, "consume: OrderCreated; PaymentFailed; DeliveryRequestFailed", "Kafka")
+Rel(inventory, broker, "publish: InventoryReserved; InventoryReservationFailed; InventoryReleased", "Kafka")
+Rel(broker, payment, "consume: InventoryReserved; DeliveryRequestFailed", "Kafka")
+Rel(payment, broker, "publish: PaymentSucceeded; PaymentFailed; PaymentRefunded", "Kafka")
+Rel(broker, delivery, "consume: PaymentSucceeded", "Kafka")
+Rel(delivery, broker, "publish: DeliveryRequestCreated; DeliveryRequestFailed", "Kafka")
+Rel(broker, order, "consume: события Saga (обновление статуса)", "Kafka")
+Rel(broker, notification, "consume: PaymentSucceeded; DeliveryRequestCreated; OrderConfirmed; OrderCancelled", "Kafka")
+Rel(broker, history, "consume: события заказа → построение проекций (CQRS)", "Kafka")
+
+' --- Внешние интеграции ---
+Rel(payment, payGw, "Списание/возврат средств", "HTTPS")
+Rel(delivery, logistics, "Создание заявки, трек-номер", "HTTPS")
+Rel(notification, seller, "Push: новый заказ / подготовить товар")
+Rel(notification, buyer, "Push: смена статуса заказа")
+
+@enduml

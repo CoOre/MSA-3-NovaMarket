@@ -1,0 +1,25 @@
+# values для helm-чарта prometheus-community/prometheus-adapter.
+# Регистрирует кастомную метрику http_requests_per_second в API
+# custom.metrics.k8s.io, чтобы её мог использовать HPA (hpa-rps.yaml).
+#
+# Установка:
+#   helm install prometheus-adapter prometheus-community/prometheus-adapter \
+#     -n monitoring -f monitoring/prometheus-adapter-values.yaml
+prometheus:
+  # адрес Prometheus внутри кластера (из kube-prometheus-stack)
+  url: http://prometheus-kube-prometheus-prometheus.monitoring.svc
+  port: 9090
+
+rules:
+  default: false
+  custom:
+    - seriesQuery: 'http_requests_total{namespace!="",pod!=""}'
+      resources:
+        overrides:
+          namespace: { resource: "namespace" }
+          pod: { resource: "pod" }
+      name:
+        matches: "http_requests_total"
+        as: "http_requests_per_second"
+      # средний RPS по подам за окно 2 минуты
+      metricsQuery: 'sum(rate(<<.Series>>{<<.LabelMatchers>>}[2m])) by (<<.GroupBy>>)'
