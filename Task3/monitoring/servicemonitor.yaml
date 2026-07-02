@@ -1,0 +1,16 @@
+# ServiceMonitor для Prometheus Operator (kube-prometheus-stack):
+# заставляет Prometheus собирать метрики приложения с эндпоинта /metrics.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: scaletestapp
+  labels:
+    release: prometheus      # должен совпадать с serviceMonitorSelector вашего Prometheus
+spec:
+  selector:
+    matchLabels:
+      app: scaletestapp
+  endpoints:
+    - port: http             # имя порта из service.yaml
+      path: /metrics
+      interval: 15s

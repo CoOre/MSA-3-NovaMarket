@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scaletestapp
+  labels:
+    app: scaletestapp
+spec:
+  replicas: 1                      # начальное количество реплик — 1 (по заданию)
+  selector:
+    matchLabels:
+      app: scaletestapp
+  template:
+    metadata:
+      labels:
+        app: scaletestapp
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+        sidecar.istio.io/inject: "false"   # тестовое приложение без service mesh sidecar
+    spec:
+      containers:
+        - name: scaletestapp
+          image: ghcr.io/yandex-practicum/scaletestapp:latest
+          # IfNotPresent: на arm64-хостах образ (amd64-only) предварительно
+          # загружается в кластер через `minikube image load`, без повторного pull
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              # HPA считает утилизацию относительно request. Держим request ниже
+              # лимита, чтобы порог 80% (= 12Mi) достигался с запасом до OOM при 30Mi —
+              # иначе под успевает словить OOMKill раньше, чем HPA добавит реплику.
+              memory: "15Mi"
+              cpu: "50m"
+            limits:
+              memory: "30Mi"       # лимит памяти 30Mi (по заданию)
+              cpu: "200m"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5

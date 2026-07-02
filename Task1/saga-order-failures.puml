@@ -1,0 +1,57 @@
+@startuml NovaMarket-Saga-Failures
+title Saga «Оформление заказа» — ошибочные сценарии и компенсации
+
+actor "Покупатель" as Buyer
+participant "Order\nService" as Order
+queue "Kafka" as Bus
+participant "Inventory\nService" as Inv
+participant "Payment\nService" as Pay
+participant "Delivery\nService" as Del
+participant "Notification\nService" as Notif
+
+Buyer -> Order : оформить заказ
+Order -> Bus : publish OrderCreated (domain)
+Bus -> Inv : OrderCreated
+
+alt Товара нет на складе
+    Inv -> Bus : publish **InventoryReservationFailed** (failure)
+    Bus -> Order : InventoryReservationFailed
+    Order -> Bus : publish **OrderCancelled** (compensation)
+    note right of Order : компенсировать нечего —\nрезерв не создавался
+
+else Ошибка оплаты
+    Inv -> Bus : publish InventoryReserved (domain)
+    Bus -> Pay : InventoryReserved
+    Pay -> Pay : недостаточно средств / отказ шлюза
+    Pay -> Bus : publish **PaymentFailed** (failure)
+
+    Bus -> Inv : PaymentFailed
+    Inv -> Inv : снять резерв
+    Inv -> Bus : publish **InventoryReleased** (compensation)
+    Bus -> Order : PaymentFailed
+    Order -> Bus : publish **OrderCancelled** (compensation)
+
+else Ошибка формирования доставки
+    Inv -> Bus : publish InventoryReserved (domain)
+    Bus -> Pay : InventoryReserved
+    Pay -> Bus : publish PaymentSucceeded (domain)
+    Bus -> Del : PaymentSucceeded
+    Del -> Del : логист недоступен / отказ
+    Del -> Bus : publish **DeliveryRequestFailed** (failure)
+
+    Bus -> Pay : DeliveryRequestFailed
+    Pay -> Pay : вернуть средства (внешний шлюз)
+    Pay -> Bus : publish **PaymentRefunded** (compensation)
+
+    Bus -> Inv : DeliveryRequestFailed
+    Inv -> Inv : снять резерв
+    Inv -> Bus : publish **InventoryReleased** (compensation)
+
+    Bus -> Order : DeliveryRequestFailed
+    Order -> Bus : publish **OrderCancelled** (compensation)
+end
+
+Bus -> Notif : OrderCancelled
+Notif -> Buyer : push «Заказ отменён» (+ причина)
+
+@enduml

@@ -1,0 +1,21 @@
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: task4-nginx
+    ports:
+      - "8080:8080"
+
+    volumes:
+      - ./nginx.test.conf:/etc/nginx/nginx.conf:ro
+    command: ["nginx", "-g", "daemon off;"]
+
+  locust:
+    image: locustio/locust:2.32.4
+    depends_on:
+      - nginx
+    ports:
+      - "8082:8089"
+    volumes:
+      - ./:/mnt/locust
+    working_dir: /mnt/locust
+    profiles: ["locust"]

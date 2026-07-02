@@ -1,0 +1,23 @@
+@startuml NovaMarket-C4-Context
+' Контекстная (C1) диаграмма NovaMarket
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+LAYOUT_WITH_LEGEND()
+title Контекстная диаграмма (C4 / C1) — NovaMarket
+
+Person(buyer, "Покупатель", "Просматривает каталог, оформляет заказы, смотрит историю покупок")
+Person(seller, "Продавец", "Размещает товары, получает уведомления о заказах")
+
+System(novamarket, "NovaMarket", "Маркетплейс: каталог, заказы, оплата, доставка, история заказов")
+
+System_Ext(payGw, "Платёжный шлюз", "Внешний провайдер платежей")
+System_Ext(logistics, "Логистический провайдер", "Внешняя служба доставки")
+
+Rel(buyer, novamarket, "Покупает товары, смотрит историю", "HTTPS")
+Rel(seller, novamarket, "Управляет товарами, обрабатывает заказы", "HTTPS")
+Rel(novamarket, payGw, "Списание/возврат средств", "HTTPS")
+Rel(novamarket, logistics, "Заявки на доставку, трек-номера", "HTTPS")
+Rel(novamarket, buyer, "Push: статусы заказов")
+Rel(novamarket, seller, "Push: новые заказы")
+
+@enduml
